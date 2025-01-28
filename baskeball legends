@@ -1,234 +1,553 @@
--- Services and Variables
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
-local UserInputService = game:GetService("UserInputService")
-
-local AimAssistEnabled = false
-local ESPEnabled = false
-local FOV = 160
-local Smoothness = 0.1
-local PredictionFactor = 0.21
-local TargetPart = "Head"
-local RMBHeld = false
-
--- Create FOV Circle
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Radius = FOV
-FOVCircle.Color = Color3.fromRGB(255, 255, 255)
-FOVCircle.Thickness = 1
-FOVCircle.Filled = false
-FOVCircle.Transparency = 1
-FOVCircle.Visible = false
-
-RunService.RenderStepped:Connect(function()
-    FOVCircle.Position = UserInputService:GetMouseLocation()
-    FOVCircle.Visible = ESPEnabled
-end)
-
--- Detect RMB state
-UserInputService.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        RMBHeld = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        RMBHeld = false
-    end
-end)
-
--- Function to get the closest player within the FOV
-local function getClosestPlayerInFOV()
-    local closestPlayer = nil
-    local closestDistance = FOV
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(TargetPart) then
-            local targetPart = player.Character[TargetPart]
-            local screenPosition, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-
-            if onScreen then
-                local mousePosition = UserInputService:GetMouseLocation()
-                local distanceFromMouse = (Vector2.new(screenPosition.X, screenPosition.Y) - mousePosition).Magnitude
-
-                if distanceFromMouse <= FOV and distanceFromMouse < closestDistance then
-                    closestPlayer = player
-                    closestDistance = distanceFromMouse
-                end
-            end
-        end
-    end
-
-    return closestPlayer
-end
-
--- Predict future position based on velocity
-local function predictPosition(targetPart)
-    local parent = targetPart.Parent
-    if parent and parent:FindFirstChild("HumanoidRootPart") then
-        local rootPart = parent.HumanoidRootPart
-        local velocity = rootPart.Velocity
-        return targetPart.Position + (velocity * PredictionFactor)
-    end
-    return targetPart.Position
-end
-
--- Smooth tracking logic
-local function smoothTrack(targetPosition)
-    local cameraCFrame = Camera.CFrame
-    local currentPosition = cameraCFrame.Position
-    local lookVector = cameraCFrame.LookVector
-    local targetDirection = (targetPosition - currentPosition).Unit
-
-    local smoothedDirection = lookVector:Lerp(targetDirection, Smoothness)
-    Camera.CFrame = CFrame.new(currentPosition, currentPosition + smoothedDirection)
-end
-
--- Aim Assist functionality
-RunService.RenderStepped:Connect(function()
-    if AimAssistEnabled and RMBHeld then
-        local targetPlayer = getClosestPlayerInFOV()
-        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild(TargetPart) then
-            local targetPart = targetPlayer.Character[TargetPart]
-            local predictedPosition = predictPosition(targetPart)
-            smoothTrack(predictedPosition)
-        end
-    end
-end)
-
--- ESP for players
-local function createESP(player)
-    local box = Drawing.new("Square")
-    local name = Drawing.new("Text")
-    local healthBar = Drawing.new("Line")
-
-    box.Thickness = 2
-    box.Transparency = 1
-    box.Color = Color3.fromRGB(255, 0, 0)
-    box.Filled = false
-
-    name.Size = 16
-    name.Center = true
-    name.Outline = true
-    name.Color = Color3.fromRGB(255, 255, 255)
-
-    healthBar.Thickness = 3
-
-    local function updateESP()
-        RunService.RenderStepped:Connect(function()
-            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and ESPEnabled then
-                local rootPart = player.Character.HumanoidRootPart
-                local humanoid = player.Character:FindFirstChild("Humanoid")
-                local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
-
-                if onScreen then
-                    local top = Camera:WorldToViewportPoint((rootPart.CFrame * CFrame.new(0, 3, 0)).p)
-                    local bottom = Camera:WorldToViewportPoint((rootPart.CFrame * CFrame.new(0, -3, 0)).p)
-                    local size = Vector2.new(1500 / vector.Z, math.abs(top.Y - bottom.Y))
-                    local position = Vector2.new(vector.X - size.X / 2, top.Y)
-
-                    box.Size = size
-                    box.Position = position
-                    box.Visible = true
-
-                    name.Text = player.Name
-                    name.Position = Vector2.new(vector.X, top.Y - 20)
-                    name.Visible = true
-
-                    if humanoid then
-                        local healthPercent = humanoid.Health / humanoid.MaxHealth
-                        local healthBarStart = Vector2.new(position.X + size.X + 5, position.Y)
-                        local healthBarEnd = Vector2.new(healthBarStart.X, position.Y + size.Y * healthPercent)
-                        healthBar.From = healthBarStart
-                        healthBar.To = healthBarEnd
-                        healthBar.Color = Color3.fromRGB(0, 255, 0)
-                        healthBar.Visible = true
-                    end
-                else
-                    box.Visible = false
-                    name.Visible = false
-                    healthBar.Visible = false
-                end
-            else
-                box.Visible = false
-                name.Visible = false
-                healthBar.Visible = false
-            end
-        end)
-    end
-
-    updateESP()
-end
-
-for _, player in ipairs(Players:GetPlayers()) do
-    if player ~= LocalPlayer then
-        player.CharacterAdded:Connect(function()
-            createESP(player)
-        end)
-        if player.Character then
-            createESP(player)
-        end
-    end
-end
-
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function()
-        createESP(player)
-    end)
-end)
-
--- UI Integration
+-- Load Yun V2 Library
 loadstring(game:HttpGet('https://raw.githubusercontent.com/drillygzzly/Roblox-UI-Libs/main/Yun%20V2%20Lib/Yun%20V2%20Lib%20Source.lua'))()
 
+-- Initialize Library and Window
 local Library = initLibrary()
-local Window = Library:Load({name = "xan", sizeX = 425, sizeY = 512, color = Color3.fromRGB(255, 255, 255)})
+local Window = Library:Load({name = "GroomClient | Basketball Legends", sizeX = 425, sizeY = 512, color = Color3.fromRGB(255, 255, 255)})
 
-local Tab = Window:Tab("Aiming")
-local Tab2 = Window:Tab("Visuals")
+-- Create Tabs
+local BasketballTab = Window:Tab("Shooting")
+local MiscTab = Window:Tab("Misc")
+local GuardingTab = Window:Tab("Guarding")
 
-local AimingSec = Tab:Section{name = "Aim Assist", column = 1}
-local VisualsSec = Tab2:Section{name = "ESP", column = 1}
+-- Basketball Section
+local basketball_section = BasketballTab:Section{name = "Autogreen", column = 1}
 
-AimingSec:Toggle {
-    Name = "Enable Aim Assist",
-    flag = "AimAssistToggle",
+-- Toggle Variable
+local basketballScriptEnabled = false
+
+-- Basketball Script Configuration
+getgenv().config = {Time = 0.045, Size = 0.9}
+local UIS = game:GetService("UserInputService")
+local Player = game:GetService("Players").LocalPlayer
+local Bar = Player.PlayerGui.Visual.Shooting.Bar
+
+-- Event connection variable
+local inputConnection
+
+-- GUI Toggle for Basketball Script
+basketball_section:Toggle {
+    Name = "Enable Autogreen",
+    flag = "basketballScriptToggle",
     callback = function(state)
-        AimAssistEnabled = state
+        basketballScriptEnabled = state
+
+        if basketballScriptEnabled then
+            -- Connect to InputBegan
+            inputConnection = UIS.InputBegan:Connect(function(input, gpe)
+                if gpe then return end
+                if input.KeyCode == Enum.KeyCode.E and basketballScriptEnabled then
+                    -- Ensure the player has the basketball
+                    if Player.Character:FindFirstChild("Basketball") then
+                        while UIS:IsKeyDown(Enum.KeyCode.E) and basketballScriptEnabled do
+                            if Bar.Size.Y.Scale > getgenv().config.Size then
+                                Bar:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Linear, getgenv().config.Time, true)
+                                task.wait()
+                                Bar.Size = UDim2.new(1, 0, 1, 0)
+                            end
+                            task.wait()
+                        end
+                    end
+                end
+            end)
+            print("Autogreen enabled")
+        else
+            -- Disconnect event to stop the script
+            if inputConnection then
+                inputConnection:Disconnect()
+                inputConnection = nil
+            end
+            print("Autogreen disabled")
+        end
     end
 }
 
-AimingSec:Slider {
-    Name = "Smoothing (Aim Speed)",
-    Default = Smoothness * 100,
-    Min = 1,
+-- Misc Section
+local misc_section = MiscTab:Section{name = "Miscellaneous Features", column = 1}
+
+-- Walkspeed Feature
+local walkspeedValue = 16 -- Default walkspeed
+local walkspeedEnabled = false -- Toggle state for walkspeed feature
+
+-- Function to Apply Walkspeed
+local function applyWalkspeed()
+    local player = game:GetService("Players").LocalPlayer
+    local UIS = game:GetService("UserInputService")
+    local runService = game:GetService("RunService")
+
+    while walkspeedEnabled do
+        local character = player.Character
+        if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Humanoid") then
+            local rootPart = character.HumanoidRootPart
+            local moveDirection = Vector3.zero
+
+            -- Detect movement keys
+            if UIS:IsKeyDown(Enum.KeyCode.W) then
+                moveDirection += workspace.CurrentCamera.CFrame.LookVector
+            end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then
+                moveDirection -= workspace.CurrentCamera.CFrame.LookVector
+            end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then
+                moveDirection -= workspace.CurrentCamera.CFrame.RightVector
+            end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then
+                moveDirection += workspace.CurrentCamera.CFrame.RightVector
+            end
+
+            -- Normalize movement direction and apply
+            if moveDirection.Magnitude > 0 then
+                moveDirection = moveDirection.Unit
+                rootPart.Velocity = Vector3.new(moveDirection.X * walkspeedValue, rootPart.Velocity.Y, moveDirection.Z * walkspeedValue)
+            else
+                -- Prevent unwanted movement
+                rootPart.Velocity = Vector3.new(0, rootPart.Velocity.Y, 0)
+            end
+        end
+        runService.Stepped:Wait()
+    end
+end
+
+-- Walkspeed Toggle
+misc_section:Toggle {
+    Name = "Enable Walkspeed",
+    flag = "walkspeedToggle",
+    callback = function(state)
+        walkspeedEnabled = state
+        if state then
+            print("Walkspeed Enabled")
+            task.spawn(applyWalkspeed)
+        else
+            print("Walkspeed Disabled")
+        end
+    end
+}
+
+-- Slider for Walkspeed
+misc_section:Slider {
+    Name = "Walkspeed",
+    Min = 16,
+    Max = 100, -- Adjust range as needed
+    Default = 16,
+    Decimals = 0,
+    flag = "walkspeedSlider",
+    callback = function(value)
+        walkspeedValue = value
+        print("Walkspeed set to:", walkspeedValue)
+    end
+}
+
+-- Silent Spin Bot Feature
+local spinBotEnabled = false -- To toggle the spin bot
+local spinSpeed = 100 -- Default spin speed in degrees per second
+
+-- Function to Handle Spin
+local function applySpinBot()
+    local character = Player.Character or Player.CharacterAdded:Wait()
+    local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+    local runService = game:GetService("RunService")
+
+    while spinBotEnabled do
+        runService.RenderStepped:Wait()
+        humanoidRootPart.CFrame = humanoidRootPart.CFrame * CFrame.Angles(0, math.rad(spinSpeed * 0.016), 0) -- Multiply by deltaTime for smooth spinning
+    end
+end
+
+-- Spin Bot Toggle
+misc_section:Toggle {
+    Name = "Enable Spin Bot",
+    flag = "spinBotToggle",
+    callback = function(state)
+        spinBotEnabled = state
+        if state then
+            print("Spin Bot Enabled")
+            task.spawn(applySpinBot)
+        else
+            print("Spin Bot Disabled")
+        end
+    end
+}
+
+-- Slider for Spin Speed
+misc_section:Slider {
+    Name = "Spinbot Speed",
+    Default = 100,
+    Min = 100,
+    Max = 3000, -- Adjust max as needed
+    Decimals = 0,
+    flag = "spinSpeedSlider",
+    callback = function(value)
+        spinSpeed = value
+        print("Spin Speed set to:", spinSpeed)
+    end
+}
+
+-- Night Mode Feature
+misc_section:Toggle {
+    Name = "Enable Night Mode",
+    flag = "nightModeToggle",
+    callback = function(state)
+        local lighting = game:GetService("Lighting")
+        if state then
+            lighting.ClockTime = 0
+            lighting.Brightness = 1
+            print("Night Mode Enabled")
+        else
+            lighting.ClockTime = 14
+            lighting.Brightness = 2
+            print("Night Mode Disabled")
+        end
+    end
+}
+
+-- No Clip Feature
+local noClipEnabled = false
+local runService = game:GetService("RunService")
+
+local function applyNoClip()
+    while noClipEnabled do
+        local character = Player.Character
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+        runService.Stepped:Wait()
+    end
+end
+
+misc_section:Toggle {
+    Name = "Enable No Clip",
+    flag = "noClipToggle",
+    callback = function(state)
+        noClipEnabled = state
+        if state then
+            print("No Clip Enabled")
+            task.spawn(applyNoClip)
+        else
+            print("No Clip Disabled")
+        end
+    end
+}
+
+-- Fly Script Section
+local flyEnabled = false
+local flySpeed = 50 -- Default fly speed
+
+-- Initialize fly variables
+local bv, bav
+local buttons = {W = false, S = false, A = false, D = false, Moving = false}
+
+-- Fly Toggle Function
+local function StartFly()
+    local character = Player.Character
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or flyEnabled then return end
+
+    humanoid.PlatformStand = true
+    local cam = workspace.CurrentCamera
+
+    bv = Instance.new("BodyVelocity")
+    bav = Instance.new("BodyAngularVelocity")
+
+    bv.Velocity, bv.MaxForce, bv.P = Vector3.new(0, 0, 0), Vector3.new(10000, 10000, 10000), 1000
+    bav.AngularVelocity, bav.MaxTorque, bav.P = Vector3.new(0, 0, 0), Vector3.new(10000, 10000, 10000), 1000
+    bv.Parent = character.Head
+    bav.Parent = character.Head
+
+    flyEnabled = true
+
+    humanoid.Died:Connect(function() 
+        EndFly()
+    end)
+end
+
+-- End Fly Function
+local function EndFly()
+    if bv then bv:Destroy() end
+    if bav then bav:Destroy() end
+    local character = Player.Character
+    if character then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then humanoid.PlatformStand = false end
+    end
+    flyEnabled = false
+end
+
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.h then
+        if flyEnabled then
+            EndFly()
+        else
+            StartFly()
+        end
+    end
+end)
+
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    for key, _ in pairs(buttons) do
+        if input.KeyCode == Enum.KeyCode[key] then
+            buttons[key] = true
+            buttons.Moving = true
+        end
+    end
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    local isMoving = false
+    for key, _ in pairs(buttons) do
+        if input.KeyCode == Enum.KeyCode[key] then
+            buttons[key] = false
+        end
+        if buttons[key] then isMoving = true end
+    end
+    buttons.Moving = isMoving
+end)
+
+local function setVec(vec)
+    return vec * ((flySpeed) / vec.Magnitude)
+end
+
+game:GetService("RunService").Heartbeat:Connect(function(step)
+    local character = Player.Character
+    if flyEnabled and character and character.PrimaryPart then
+        local position = character.PrimaryPart.Position
+        local camCFrame = workspace.CurrentCamera.CFrame
+        local ax, ay, az = camCFrame:toEulerAnglesXYZ()
+        character:SetPrimaryPartCFrame(CFrame.new(position.x, position.y, position.z) * CFrame.Angles(ax, ay, az))
+        if buttons.Moving then
+            local moveVec = Vector3.new()
+            if buttons.W then moveVec = moveVec + (setVec(camCFrame.lookVector)) end
+            if buttons.S then moveVec = moveVec - (setVec(camCFrame.lookVector)) end
+            if buttons.A then moveVec = moveVec - (setVec(camCFrame.rightVector)) end
+            if buttons.D then moveVec = moveVec + (setVec(camCFrame.rightVector)) end
+            character:TranslateBy(moveVec * step)
+        end
+    end
+end)
+
+-- Fly Toggle in GUI
+misc_section:Toggle {
+    Name = "Enable Fly",
+    flag = "flyToggle",
+    callback = function(state)
+        if state then
+            StartFly()
+            print("Flying Enabled")
+        else
+            EndFly()
+            print("Flying Disabled")
+        end
+    end
+}
+
+-- Fly Speed Slider
+misc_section:Slider {
+    Name = "Fly Speed",
+    Min = 10,
     Max = 100,
-    Decimals = 1,
-    Flag = "SmoothingSlider",
+    Default = 50,
+    Decimals = 0,
+    flag = "flySpeedSlider",
     callback = function(value)
-        Smoothness = value / 100
+        flySpeed = value
+        print("Fly Speed set to:", flySpeed)
     end
 }
 
-AimingSec:Slider {
-    Name = "FOV (Field of View)",
-    Default = FOV,
-    Min = 50,
-    Max = 500,
-    Decimals = 1,
-    Flag = "FOVSlider",
-    callback = function(value)
-        FOV = value
-        FOVCircle.Radius = FOV
-    end
-}
 
-VisualsSec:Toggle {
-    Name = "Enable ESP",
-    flag = "ESPEnabled",
+-- Left Click to Teleport Feature
+local teleportEnabled = false -- Toggle state for the teleport feature
+local mouse = Player:GetMouse()
+local maxTeleportDistance = 100 -- Maximum teleport distance in studs
+
+-- Function to Handle Left Click Teleport
+local function leftClickTeleport()
+    mouse.Button1Down:Connect(function()
+        if teleportEnabled then
+            local character = Player.Character
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local targetPosition = mouse.Hit.p
+                local currentPosition = character.HumanoidRootPart.Position
+                local distance = (targetPosition - currentPosition).Magnitude
+
+                if distance <= maxTeleportDistance then
+                    character.HumanoidRootPart.CFrame = CFrame.new(targetPosition)
+                    print("Teleported to:", targetPosition)
+                else
+                    print("Teleportation failed: Target too far away (Distance: " .. distance .. " studs).")
+                end
+            end
+        end
+    end)
+end
+
+-- Left Click to Teleport Toggle
+misc_section:Toggle {
+    Name = "Enable Left Click to Teleport",
+    flag = "leftClickTeleportToggle",
     callback = function(state)
-        ESPEnabled = state
+        teleportEnabled = state
+        if state then
+            print("Left Click to Teleport Enabled")
+            leftClickTeleport() -- Start listening for clicks
+        else
+            print("Left Click to Teleport Disabled")
+        end
+    end
+}
+
+
+
+local Player = game:GetService("Players").LocalPlayer
+local UIS = game:GetService("UserInputService")
+local teleportEnabled = false
+
+-- Teleportation Coordinates
+local teleportCoords1 = Vector3.new(-89, -2, 204)
+local teleportCoords2 = Vector3.new(-158, -2, 204)
+
+-- Toggle in GUI
+local misc_section = MiscTab:Section{name = "Teleport Feature", column = 1}
+misc_section:Toggle {
+    Name = "Enable Teleportation",
+    flag = "teleportToggle",
+    callback = function(state)
+        teleportEnabled = state
+        print("Teleportation Enabled:", state)
+    end
+}
+
+-- Function to simulate key press
+local function simulateKeyPress(keyCode)
+    local virtualInputManager = game:GetService("VirtualInputManager")
+    virtualInputManager:SendKeyEvent(true, keyCode, false, game)
+    task.wait(0.05) -- Small delay to simulate key press
+    virtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+-- Teleportation and Key Press Logic on Key Press (V)
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or not teleportEnabled then return end
+
+    if input.KeyCode == Enum.KeyCode.V then
+        local character = Player.Character
+        if not character or not character:FindFirstChild("HumanoidRootPart") then
+            print("No HumanoidRootPart found!")
+            return
+        end
+
+        -- Teleport to one of the two locations randomly
+        local hrp = character.HumanoidRootPart
+        local randomCoord = math.random(1, 2) == 1 and teleportCoords1 or teleportCoords2
+        hrp.CFrame = CFrame.new(randomCoord)
+
+        print("Teleported to:", randomCoord)
+
+        -- Wait a small delay before pressing "E"
+        task.wait(0.3)
+
+        -- Simulate pressing "E"
+        simulateKeyPress(Enum.KeyCode.E)
+        print("Pressed 'E'!")
+    end
+end)
+
+
+
+-- Visuals Section
+local guarding_section = GuardingTab:Section{name = "Auto guard keybind K", column = 1}
+
+-- Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- Variables
+local localPlayer = Players.LocalPlayer
+local featureEnabled = false
+local following = false
+local followConnection
+
+-- Function to find the nearest player
+local function getNearestPlayer()
+    local shortestDistance = math.huge
+    local nearestPlayer = nil
+    local localCharacter = localPlayer.Character
+    if not localCharacter or not localCharacter:FindFirstChild("HumanoidRootPart") then return nil end
+    local localPosition = localCharacter.HumanoidRootPart.Position
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local targetPosition = player.Character.HumanoidRootPart.Position
+            local distance = (targetPosition - localPosition).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                nearestPlayer = player
+            end
+        end
+    end
+    return nearestPlayer
+end
+
+-- Function to teleport in front of a player
+local function teleportInFrontOfPlayer(targetPlayer)
+    if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
+    local targetHRP = targetPlayer.Character.HumanoidRootPart
+    local offset = targetHRP.CFrame.LookVector * 5 -- Adjust the distance as needed
+    local newPosition = targetHRP.Position + offset
+    localPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(newPosition, targetHRP.Position)
+end
+
+-- Function to start following the nearest player
+local function startFollowing()
+    following = true
+    followConnection = RunService.RenderStepped:Connect(function()
+        local nearestPlayer = getNearestPlayer()
+        if nearestPlayer then
+            teleportInFrontOfPlayer(nearestPlayer)
+        end
+    end)
+end
+
+-- Function to stop following
+local function stopFollowing()
+    following = false
+    if followConnection then
+        followConnection:Disconnect()
+        followConnection = nil
+    end
+end
+
+-- Toggle function
+local function toggleFeature(state)
+    featureEnabled = state
+    if featureEnabled then
+        print("Feature Enabled")
+        -- Listen for 'K' key press
+        UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if input.KeyCode == Enum.KeyCode.K and not gameProcessed then
+                if following then
+                    stopFollowing()
+                else
+                    startFollowing()
+                end
+            end
+        end)
+    else
+        print("Feature Disabled")
+        stopFollowing()
+    end
+end
+
+-- GUI Toggle
+guarding_section:Toggle {
+    Name = "Enabled",
+    flag = "ooolol",
+    callback = function(state)
+        toggleFeature(state)
     end
 }
