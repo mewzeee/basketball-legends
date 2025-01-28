@@ -1,0 +1,234 @@
+-- Services and Variables
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+
+local AimAssistEnabled = false
+local ESPEnabled = false
+local FOV = 160
+local Smoothness = 0.1
+local PredictionFactor = 0.21
+local TargetPart = "Head"
+local RMBHeld = false
+
+-- Create FOV Circle
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Radius = FOV
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Thickness = 1
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.Visible = false
+
+RunService.RenderStepped:Connect(function()
+    FOVCircle.Position = UserInputService:GetMouseLocation()
+    FOVCircle.Visible = ESPEnabled
+end)
+
+-- Detect RMB state
+UserInputService.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        RMBHeld = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        RMBHeld = false
+    end
+end)
+
+-- Function to get the closest player within the FOV
+local function getClosestPlayerInFOV()
+    local closestPlayer = nil
+    local closestDistance = FOV
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(TargetPart) then
+            local targetPart = player.Character[TargetPart]
+            local screenPosition, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+
+            if onScreen then
+                local mousePosition = UserInputService:GetMouseLocation()
+                local distanceFromMouse = (Vector2.new(screenPosition.X, screenPosition.Y) - mousePosition).Magnitude
+
+                if distanceFromMouse <= FOV and distanceFromMouse < closestDistance then
+                    closestPlayer = player
+                    closestDistance = distanceFromMouse
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+-- Predict future position based on velocity
+local function predictPosition(targetPart)
+    local parent = targetPart.Parent
+    if parent and parent:FindFirstChild("HumanoidRootPart") then
+        local rootPart = parent.HumanoidRootPart
+        local velocity = rootPart.Velocity
+        return targetPart.Position + (velocity * PredictionFactor)
+    end
+    return targetPart.Position
+end
+
+-- Smooth tracking logic
+local function smoothTrack(targetPosition)
+    local cameraCFrame = Camera.CFrame
+    local currentPosition = cameraCFrame.Position
+    local lookVector = cameraCFrame.LookVector
+    local targetDirection = (targetPosition - currentPosition).Unit
+
+    local smoothedDirection = lookVector:Lerp(targetDirection, Smoothness)
+    Camera.CFrame = CFrame.new(currentPosition, currentPosition + smoothedDirection)
+end
+
+-- Aim Assist functionality
+RunService.RenderStepped:Connect(function()
+    if AimAssistEnabled and RMBHeld then
+        local targetPlayer = getClosestPlayerInFOV()
+        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild(TargetPart) then
+            local targetPart = targetPlayer.Character[TargetPart]
+            local predictedPosition = predictPosition(targetPart)
+            smoothTrack(predictedPosition)
+        end
+    end
+end)
+
+-- ESP for players
+local function createESP(player)
+    local box = Drawing.new("Square")
+    local name = Drawing.new("Text")
+    local healthBar = Drawing.new("Line")
+
+    box.Thickness = 2
+    box.Transparency = 1
+    box.Color = Color3.fromRGB(255, 0, 0)
+    box.Filled = false
+
+    name.Size = 16
+    name.Center = true
+    name.Outline = true
+    name.Color = Color3.fromRGB(255, 255, 255)
+
+    healthBar.Thickness = 3
+
+    local function updateESP()
+        RunService.RenderStepped:Connect(function()
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and ESPEnabled then
+                local rootPart = player.Character.HumanoidRootPart
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+                local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+
+                if onScreen then
+                    local top = Camera:WorldToViewportPoint((rootPart.CFrame * CFrame.new(0, 3, 0)).p)
+                    local bottom = Camera:WorldToViewportPoint((rootPart.CFrame * CFrame.new(0, -3, 0)).p)
+                    local size = Vector2.new(1500 / vector.Z, math.abs(top.Y - bottom.Y))
+                    local position = Vector2.new(vector.X - size.X / 2, top.Y)
+
+                    box.Size = size
+                    box.Position = position
+                    box.Visible = true
+
+                    name.Text = player.Name
+                    name.Position = Vector2.new(vector.X, top.Y - 20)
+                    name.Visible = true
+
+                    if humanoid then
+                        local healthPercent = humanoid.Health / humanoid.MaxHealth
+                        local healthBarStart = Vector2.new(position.X + size.X + 5, position.Y)
+                        local healthBarEnd = Vector2.new(healthBarStart.X, position.Y + size.Y * healthPercent)
+                        healthBar.From = healthBarStart
+                        healthBar.To = healthBarEnd
+                        healthBar.Color = Color3.fromRGB(0, 255, 0)
+                        healthBar.Visible = true
+                    end
+                else
+                    box.Visible = false
+                    name.Visible = false
+                    healthBar.Visible = false
+                end
+            else
+                box.Visible = false
+                name.Visible = false
+                healthBar.Visible = false
+            end
+        end)
+    end
+
+    updateESP()
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        player.CharacterAdded:Connect(function()
+            createESP(player)
+        end)
+        if player.Character then
+            createESP(player)
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        createESP(player)
+    end)
+end)
+
+-- UI Integration
+loadstring(game:HttpGet('https://raw.githubusercontent.com/drillygzzly/Roblox-UI-Libs/main/Yun%20V2%20Lib/Yun%20V2%20Lib%20Source.lua'))()
+
+local Library = initLibrary()
+local Window = Library:Load({name = "xan", sizeX = 425, sizeY = 512, color = Color3.fromRGB(255, 255, 255)})
+
+local Tab = Window:Tab("Aiming")
+local Tab2 = Window:Tab("Visuals")
+
+local AimingSec = Tab:Section{name = "Aim Assist", column = 1}
+local VisualsSec = Tab2:Section{name = "ESP", column = 1}
+
+AimingSec:Toggle {
+    Name = "Enable Aim Assist",
+    flag = "AimAssistToggle",
+    callback = function(state)
+        AimAssistEnabled = state
+    end
+}
+
+AimingSec:Slider {
+    Name = "Smoothing (Aim Speed)",
+    Default = Smoothness * 100,
+    Min = 1,
+    Max = 100,
+    Decimals = 1,
+    Flag = "SmoothingSlider",
+    callback = function(value)
+        Smoothness = value / 100
+    end
+}
+
+AimingSec:Slider {
+    Name = "FOV (Field of View)",
+    Default = FOV,
+    Min = 50,
+    Max = 500,
+    Decimals = 1,
+    Flag = "FOVSlider",
+    callback = function(value)
+        FOV = value
+        FOVCircle.Radius = FOV
+    end
+}
+
+VisualsSec:Toggle {
+    Name = "Enable ESP",
+    flag = "ESPEnabled",
+    callback = function(state)
+        ESPEnabled = state
+    end
+}
